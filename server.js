@@ -10,7 +10,7 @@ const DATA_DIR = path.join(ROOT, "data");
 const STORE_PATH = path.join(DATA_DIR, "store.json");
 const MAX_BODY_BYTES = 12 * 1024 * 1024;
 const DEFAULT_HOUSEHOLD_ID = "HOME";
-const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL || "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const DEFAULT_SUPABASE_STATE_TABLE = "food_check_state";
 const SUPABASE_STATE_TABLE = String(process.env.SUPABASE_STATE_TABLE || DEFAULT_SUPABASE_STATE_TABLE).trim();
@@ -32,6 +32,14 @@ const mimeTypes = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg"
 };
+
+function normalizeSupabaseUrl(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/rest\/v1$/i, "")
+    .replace(/\/+$/, "");
+}
 
 function createInitialStore() {
   return {
