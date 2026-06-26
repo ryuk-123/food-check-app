@@ -15,6 +15,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const SUPABASE_STATE_TABLE = process.env.SUPABASE_STATE_TABLE || "food_check_state";
 const SUPABASE_STATE_ID = process.env.SUPABASE_STATE_ID || "default";
 const STORAGE_MODE = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY ? "supabase" : "local";
+const IS_VERCEL = Boolean(process.env.VERCEL);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 
@@ -91,6 +92,11 @@ async function readStore() {
 }
 
 function readLocalStore() {
+  if (IS_VERCEL) {
+    global.foodCheckMemoryStore ||= createInitialStore();
+    return migrateStore(global.foodCheckMemoryStore);
+  }
+
   ensureStore();
   const store = JSON.parse(fs.readFileSync(STORE_PATH, "utf8"));
   return migrateStore(store);
@@ -132,6 +138,11 @@ function mutateStore(operation) {
 }
 
 function writeLocalStore(store) {
+  if (IS_VERCEL) {
+    global.foodCheckMemoryStore = store;
+    return;
+  }
+
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
 }
@@ -764,7 +775,7 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname.startsWith("/api/")) {
@@ -775,10 +786,16 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     sendError(res, error.status || 500, error.message || "Unexpected server error.");
   }
-});
+}
 
-if (STORAGE_MODE === "local") ensureStore();
-server.listen(PORT, () => {
-  console.log(`Food Check is running at http://localhost:${PORT}`);
-  console.log(`Storage mode: ${STORAGE_MODE}`);
-});
+const server = http.createServer(handleRequest);
+
+if (require.main === module) {
+  if (STORAGE_MODE === "local") ensureStore();
+  server.listen(PORT, () => {
+    console.log(`Food Check is running at http://localhost:${PORT}`);
+    console.log(`Storage mode: ${STORAGE_MODE}`);
+  });
+}
+
+module.exports = handleRequest;
