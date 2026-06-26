@@ -151,7 +151,8 @@ async function readSupabaseStore() {
   const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_STATE_TABLE}?id=eq.${encodeURIComponent(SUPABASE_STATE_ID)}&select=data`;
   const response = await fetch(url, { headers: supabaseHeaders() });
   if (!response.ok) {
-    throw Object.assign(new Error(`Supabase read failed (${response.status}).`), { status: 502 });
+    const details = await safeResponseText(response);
+    throw Object.assign(new Error(`Supabase read failed (${response.status}).`), { status: 502, details });
   }
 
   const rows = await response.json();
@@ -176,8 +177,14 @@ async function writeSupabaseStore(store) {
     })
   });
   if (!response.ok) {
-    throw Object.assign(new Error(`Supabase write failed (${response.status}).`), { status: 502 });
+    const details = await safeResponseText(response);
+    throw Object.assign(new Error(`Supabase write failed (${response.status}).`), { status: 502, details });
   }
+}
+
+async function safeResponseText(response) {
+  const text = await response.text().catch(() => "");
+  return text.slice(0, 800);
 }
 
 function supabaseHeaders() {
