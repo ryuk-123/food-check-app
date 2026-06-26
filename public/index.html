@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#fff7ed" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Food Check" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>Food Check</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/styles.css?v=8" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Shared fridge</p>
+          <h1>Food Check</h1>
+        </div>
+        <button class="icon-button" id="refreshButton" aria-label="Refresh list" title="Refresh list">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" />
+            <path d="M3 21v-5h5" />
+            <path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" />
+            <path d="M21 3v5h-5" />
+          </svg>
+        </button>
+      </header>
+
+      <main>
+        <section class="hero-band">
+          <div>
+            <p class="eyebrow">Tonight's move</p>
+            <h2 id="heroTitle">Keep the fridge honest.</h2>
+            <p id="heroCopy">Scan a receipt, review what belongs in the fridge, and ask what to cook from the current list.</p>
+          </div>
+          <button class="primary-button" data-go="scan">Scan receipt</button>
+        </section>
+
+        <nav class="tabs" aria-label="Main sections">
+          <button class="tab active" data-view="fridge">Fridge</button>
+          <button class="tab" data-view="scan">Scan</button>
+          <button class="tab" data-view="cook">Cook</button>
+        </nav>
+
+        <section class="view active" id="fridgeView">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Inventory</p>
+              <h2>What's at home</h2>
+            </div>
+            <button class="secondary-button" id="showAddButton">Add item</button>
+          </div>
+
+          <form class="add-form hidden" id="addForm">
+            <label>
+              Item
+              <input name="name" type="text" placeholder="e.g. tofu, romaine, oat milk" required />
+            </label>
+            <div class="form-grid">
+              <label>
+                Qty
+                <input name="quantity" type="text" placeholder="1 pack" />
+              </label>
+              <label>
+                Area
+                <select name="location">
+                  <option value="fridge">Fridge</option>
+                  <option value="freezer">Freezer</option>
+                  <option value="pantry">Pantry</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              Category
+              <input name="category" type="text" placeholder="Produce, dairy, meat..." />
+            </label>
+            <label>
+              Use by
+              <input name="expiresAt" type="date" />
+            </label>
+            <div class="form-actions">
+              <button class="secondary-button" type="button" id="cancelAddButton">Cancel</button>
+              <button class="primary-button" type="submit">Save</button>
+            </div>
+          </form>
+
+          <form class="household-panel" id="householdForm">
+            <div>
+              <p class="eyebrow">Household</p>
+              <h3 id="householdTitle">Home Fridge</h3>
+              <p class="helper">Use the same code on another phone to share this list.</p>
+            </div>
+            <div class="form-grid">
+              <label>
+                Share code
+                <input id="householdCodeInput" name="householdId" type="text" autocomplete="off" inputmode="text" placeholder="HOME" />
+              </label>
+              <label>
+                List name
+                <input id="householdNameInput" name="householdName" type="text" placeholder="Home Fridge" />
+              </label>
+            </div>
+            <button class="secondary-button full" type="submit">Use this household</button>
+          </form>
+
+          <div class="stats-row">
+            <div>
+              <strong id="itemCount">0</strong>
+              <span>items tracked</span>
+            </div>
+            <div>
+              <strong id="fridgeCount">0</strong>
+              <span>cold items</span>
+            </div>
+            <div>
+              <strong id="soonCount">0</strong>
+              <span>use soon</span>
+            </div>
+          </div>
+
+          <div class="inventory-tools">
+            <label>
+              Search
+              <input id="inventorySearch" type="search" placeholder="Find milk, eggs, kimchi..." autocomplete="off" />
+            </label>
+            <div class="filter-chips" id="inventoryFilters" aria-label="Inventory filters">
+              <button type="button" class="filter-chip active" data-filter="all">All</button>
+              <button type="button" class="filter-chip" data-filter="fridge">Fridge</button>
+              <button type="button" class="filter-chip" data-filter="freezer">Freezer</button>
+              <button type="button" class="filter-chip" data-filter="pantry">Pantry</button>
+              <button type="button" class="filter-chip" data-filter="soon">Use soon</button>
+            </div>
+          </div>
+
+          <div class="inventory-list" id="inventoryList"></div>
+        </section>
+
+        <section class="view" id="scanView">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Receipt scan</p>
+              <h2>Upload, then review</h2>
+            </div>
+          </div>
+
+          <div class="upload-panel">
+            <input id="receiptInput" type="file" accept="image/*" capture="environment" />
+            <div class="preview-frame" id="previewFrame">
+              <span>Receipt preview</span>
+              <img id="receiptPreview" alt="" />
+            </div>
+            <button class="primary-button full" id="scanButton" disabled>Scan receipt</button>
+            <p class="helper" id="scanNotice">No receipt selected yet.</p>
+          </div>
+
+          <div class="review-panel hidden" id="reviewPanel">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">Confirm items</p>
+                <h2>Before saving</h2>
+              </div>
+              <button class="secondary-button" id="commitScanButton">Add selected</button>
+            </div>
+            <div id="candidateList" class="candidate-list"></div>
+          </div>
+        </section>
+
+        <section class="view" id="cookView">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Recommendations</p>
+              <h2>What should we cook?</h2>
+            </div>
+          </div>
+
+          <form class="cook-form" id="cookForm">
+            <label>
+              Cuisine mood
+              <select name="cuisine">
+                <option>Flexible</option>
+                <option>Asian</option>
+                <option>Western</option>
+                <option>Korean</option>
+                <option>Japanese</option>
+                <option>Italian</option>
+                <option>Mexican</option>
+              </select>
+            </label>
+
+            <div>
+              <p class="field-label">Craving</p>
+              <div class="chip-grid" id="cravingChips">
+                <button type="button" class="chip" data-value="spicy">Spicy</button>
+                <button type="button" class="chip" data-value="sweet">Sweet</button>
+                <button type="button" class="chip" data-value="fresh">Fresh</button>
+                <button type="button" class="chip" data-value="cozy">Cozy</button>
+                <button type="button" class="chip" data-value="quick">Quick</button>
+                <button type="button" class="chip" data-value="healthy">Healthy</button>
+                <button type="button" class="chip" data-value="use-soon">Use soon first</button>
+              </div>
+            </div>
+
+            <label>
+              Anything specific?
+              <textarea name="note" rows="3" placeholder="e.g. not too heavy, use chicken first, low dishes"></textarea>
+            </label>
+
+            <button class="primary-button full" type="submit">Recommend dinner</button>
+          </form>
+
+          <p class="helper" id="recommendationNotice"></p>
+          <div class="recipe-list" id="recipeList"></div>
+        </section>
+      </main>
+
+      <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+    </div>
+
+    <script src="/app.js?v=8"></script>
+  </body>
+</html>
