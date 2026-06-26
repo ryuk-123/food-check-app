@@ -12,12 +12,14 @@ const MAX_BODY_BYTES = 12 * 1024 * 1024;
 const DEFAULT_HOUSEHOLD_ID = "HOME";
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const SUPABASE_STATE_TABLE = process.env.SUPABASE_STATE_TABLE || "food_check_state";
+const DEFAULT_SUPABASE_STATE_TABLE = "food_check_state";
+const SUPABASE_STATE_TABLE = String(process.env.SUPABASE_STATE_TABLE || DEFAULT_SUPABASE_STATE_TABLE).trim();
 const SUPABASE_STATE_ID = process.env.SUPABASE_STATE_ID || "default";
 const STORAGE_MODE = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY ? "supabase" : "local";
 const IS_VERCEL = Boolean(process.env.VERCEL);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+let activeSupabaseStateTable = SUPABASE_STATE_TABLE;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -148,23 +150,35 @@ function writeLocalStore(store) {
 }
 
 async function readSupabaseStore() {
-  const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_STATE_TABLE}?id=eq.${encodeURIComponent(SUPABASE_STATE_ID)}&select=data`;
-  const response = await fetch(url, { headers: supabaseHeaders() });
-  if (!response.ok) {
-    const details = await safeResponseText(response);
-    throw Object.assign(new Error(`Supabase read failed (${response.status}).`), { status: 502, details });
+  const failures = [];
+
+  for (const table of supabaseTableCandidates()) {
+    const url = `${SUPABASE_URL}/rest/v1/${encodeURIComponent(table)}?id=eq.${encodeURIComponent(SUPABASE_STATE_ID)}&select=data`;
+    const response = await fetch(url, { headers: supabaseHeaders() });
+    if (!response.ok) {
+      failures.push({ table, status: response.status, details: await safeResponseText(response) });
+      continue;
+    }
+
+    activeSupabaseStateTable = table;
+    const rows = await response.json();
+    if (rows[0] && rows[0].data) return migrateStore(rows[0].data);
+
+    const initial = createInitialStore();
+    await writeSupabaseStore(initial, table);
+    return initial;
   }
 
-  const rows = await response.json();
-  if (rows[0] && rows[0].data) return migrateStore(rows[0].data);
-
-  const initial = createInitialStore();
-  await writeSupabaseStore(initial);
-  return initial;
+  const latest = failures[failures.length - 1] || {};
+  throw Object.assign(new Error(`Supabase read failed (${latest.status || "unknown"}).`), { status: 502, details: failures });
 }
 
-async function writeSupabaseStore(store) {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_STATE_TABLE}`, {
+function supabaseTableCandidates() {
+  return Array.from(new Set([SUPABASE_STATE_TABLE, DEFAULT_SUPABASE_STATE_TABLE].filter(Boolean)));
+}
+
+async function writeSupabaseStore(store, table = activeSupabaseStateTable) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${encodeURIComponent(table)}`, {
     method: "POST",
     headers: {
       ...supabaseHeaders(),
@@ -316,6 +330,33 @@ async function handleApi(req, res, pathname) {
       aiProvider: GEMINI_API_KEY ? "gemini" : "local",
       model: GEMINI_API_KEY ? GEMINI_MODEL : "",
       storageMode: STORAGE_MODE
+    });
+  }
+
+  if (req.method === "GET" && pathname === "/api/debug/supabase") {
+    if (STORAGE_MODE !== "supabase") {
+      return sendJson(res, 200, { storageMode: STORAGE_MODE, message: "Supabase is not configured." });
+    }
+
+    const checks = [];
+    for (const table of supabaseTableCandidates()) {
+      const url = `${SUPABASE_URL}/rest/v1/${encodeURIComponent(table)}?id=eq.${encodeURIComponent(SUPABASE_STATE_ID)}&select=id`;
+      const response = await fetch(url, { headers: supabaseHeaders() });
+      checks.push({
+        table,
+        ok: response.ok,
+        status: response.status,
+        details: response.ok ? "" : await safeResponseText(response)
+      });
+    }
+
+    return sendJson(res, 200, {
+      storageMode: STORAGE_MODE,
+      urlHost: new URL(SUPABASE_URL).host,
+      configuredTable: SUPABASE_STATE_TABLE,
+      stateId: SUPABASE_STATE_ID,
+      keyKind: SUPABASE_SERVICE_ROLE_KEY.startsWith("sb_secret_") ? "secret" : "legacy-or-other",
+      checks
     });
   }
 
