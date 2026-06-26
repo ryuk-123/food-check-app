@@ -341,33 +341,6 @@ async function handleApi(req, res, pathname) {
     });
   }
 
-  if (req.method === "GET" && pathname === "/api/debug/supabase") {
-    if (STORAGE_MODE !== "supabase") {
-      return sendJson(res, 200, { storageMode: STORAGE_MODE, message: "Supabase is not configured." });
-    }
-
-    const checks = [];
-    for (const table of supabaseTableCandidates()) {
-      const url = `${SUPABASE_URL}/rest/v1/${encodeURIComponent(table)}?id=eq.${encodeURIComponent(SUPABASE_STATE_ID)}&select=id`;
-      const response = await fetch(url, { headers: supabaseHeaders() });
-      checks.push({
-        table,
-        ok: response.ok,
-        status: response.status,
-        details: response.ok ? "" : await safeResponseText(response)
-      });
-    }
-
-    return sendJson(res, 200, {
-      storageMode: STORAGE_MODE,
-      urlHost: new URL(SUPABASE_URL).host,
-      configuredTable: SUPABASE_STATE_TABLE,
-      stateId: SUPABASE_STATE_ID,
-      keyKind: SUPABASE_SERVICE_ROLE_KEY.startsWith("sb_secret_") ? "secret" : "legacy-or-other",
-      checks
-    });
-  }
-
   if (req.method === "GET" && pathname === "/api/household") {
     const householdId = getHouseholdId(req);
     const result = await mutateStore((store) => {
