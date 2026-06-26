@@ -520,7 +520,7 @@ async function scanReceiptWithGemini(imageDataUrl) {
     input: [
       {
         type: "text",
-        text: "Extract grocery receipt line items that are food. Return grocery items only, not taxes, payment lines, totals, bags, coupons, or store info. Infer clean names, quantities when visible, category, and whether each belongs in fridge, freezer, or pantry."
+        text: "Extract grocery receipt line items that normally belong in a fridge or freezer. Return cold-storage grocery items only. Omit shelf-stable pantry items, snacks, canned goods, dry rice/pasta/noodles, spices, drinks that do not require refrigeration before opening, taxes, payment lines, totals, bags, coupons, and store info. Infer clean names, quantities when visible, category, and whether each belongs in fridge or freezer."
       },
       { type: "image", data: image.data, mime_type: image.mimeType }
     ],
@@ -537,7 +537,7 @@ async function scanReceiptWithGemini(imageDataUrl) {
       category: item.category || "Other",
       location: item.location || "fridge",
       confidence: item.confidence || 0.7
-    }))
+    })).filter((item) => ["fridge", "freezer"].includes(item.location))
   };
 }
 
@@ -546,8 +546,8 @@ function fallbackReceiptItems() {
     { name: "Baby spinach", quantity: "1 bag", category: "Produce", location: "fridge", confidence: 0.92 },
     { name: "Chicken breast", quantity: "1 pack", category: "Meat", location: "fridge", confidence: 0.88 },
     { name: "Strawberries", quantity: "1 box", category: "Fruit", location: "fridge", confidence: 0.85 },
-    { name: "Milk", quantity: "1 carton", category: "Dairy", location: "fridge", confidence: 0.9 },
-    { name: "Rice noodles", quantity: "1 pack", category: "Pantry", location: "pantry", confidence: 0.75 }
+    { name: "Frozen dumplings", quantity: "1 bag", category: "Frozen", location: "freezer", confidence: 0.86 },
+    { name: "Milk", quantity: "1 carton", category: "Dairy", location: "fridge", confidence: 0.9 }
   ];
 }
 
@@ -646,7 +646,7 @@ function receiptItemsSchema() {
             name: { type: "string" },
             quantity: { type: "string" },
             category: { type: "string" },
-            location: { type: "string", enum: ["fridge", "freezer", "pantry"] },
+            location: { type: "string", enum: ["fridge", "freezer"] },
             confidence: { type: "number" }
           }
         }
