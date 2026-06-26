@@ -181,11 +181,16 @@ async function writeSupabaseStore(store) {
 }
 
 function supabaseHeaders() {
-  return {
+  const headers = {
     apikey: SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
     "Content-Type": "application/json"
   };
+
+  if (!SUPABASE_SERVICE_ROLE_KEY.startsWith("sb_secret_")) {
+    headers.Authorization = `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`;
+  }
+
+  return headers;
 }
 
 function sendJson(res, status, payload) {
