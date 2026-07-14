@@ -52,7 +52,7 @@ Every fridge item, receipt scan, edit, and recommendation is scoped to that code
 
 ## Gemini Receipt Scanning
 
-Without an API key, receipt scanning uses demo extraction so the flow can be tested immediately.
+Without an API key, receipt scanning runs in demo mode: it returns clearly-labeled sample items so the flow can be tested immediately. With an API key set, a failed scan returns an error notice instead of sample items, so fake data is never saved.
 
 To enable real AI scanning and recipe recommendations, get a free-tier Gemini API key from Google AI Studio and start the server with:
 
@@ -60,6 +60,8 @@ To enable real AI scanning and recipe recommendations, get a free-tier Gemini AP
 $env:GEMINI_API_KEY="your_gemini_api_key_here"
 npm start
 ```
+
+The server also loads a local `.env` file automatically (copy `.env.example` to `.env` and fill in values), so you don't have to set variables in every terminal.
 
 Optional:
 

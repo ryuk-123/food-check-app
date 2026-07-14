@@ -3,8 +3,10 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-const PORT = Number(process.env.PORT || 4179);
 const ROOT = __dirname;
+loadEnvFile(path.join(ROOT, ".env"));
+
+const PORT = Number(process.env.PORT || 4179);
 const PUBLIC_DIR = path.join(ROOT, "public");
 const DATA_DIR = path.join(ROOT, "data");
 const STORE_PATH = path.join(DATA_DIR, "store.json");
@@ -32,6 +34,23 @@ const mimeTypes = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg"
 };
+
+function loadEnvFile(envPath) {
+  try {
+    if (!fs.existsSync(envPath)) return;
+    for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (!match) continue;
+      const key = match[1];
+      const value = match[2].replace(/^["']|["']$/g, "");
+      if (process.env[key] === undefined || process.env[key] === "") {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // A broken .env file should never stop the server.
+  }
+}
 
 function normalizeSupabaseUrl(value) {
   return String(value || "")
@@ -284,7 +303,7 @@ function normalizeItem(input, source = "manual") {
 function mergeItem(store, item) {
   const key = item.name.toLowerCase();
   const existing = store.items.find((candidate) => {
-    return candidate.status === "active" && candidate.name.toLowerCase() === key;
+    return candidate.status === "active" && candidate.name.toLowerCase() === key && candidate.location === item.location;
   });
 
   if (!existing) {
@@ -441,6 +460,7 @@ async function handleApi(req, res, pathname) {
     await mutateStore((store) => {
       const household = getHousehold(store, householdId);
       household.scans.unshift(scan);
+      household.scans.length = Math.min(household.scans.length, 20);
     });
     return sendJson(res, 200, {
       scanId: scan.id,
@@ -487,6 +507,7 @@ async function handleApi(req, res, pathname) {
         preferences: body,
         result
       });
+      latestHousehold.recommendations.length = Math.min(latestHousehold.recommendations.length, 20);
     });
     return sendJson(res, 200, result);
   }
@@ -500,29 +521,37 @@ async function scanReceipt(imageDataUrl) {
       return await scanReceiptWithGemini(imageDataUrl);
     } catch (error) {
       return {
-        mode: "fallback",
-        notice: `Gemini scan failed, so demo extraction was used: ${error.message}`,
-        items: fallbackReceiptItems()
+        mode: "error",
+        notice: `The AI scan failed, so no items were extracted. Try again in a moment or add items manually. (${error.message})`,
+        items: []
       };
     }
   }
 
   return {
     mode: "fallback",
-    notice: "Demo extraction is active. Add GEMINI_API_KEY before starting the server to scan real receipts.",
+    notice: "Demo mode: these are sample items, not from your receipt. Set GEMINI_API_KEY on the server to scan real receipts.",
     items: fallbackReceiptItems()
   };
 }
+
+const RECEIPT_SCAN_PROMPT = [
+  "You are reading a photo of a grocery receipt. Extract only the line items that belong in a refrigerator or freezer at home.",
+  "Receipts abbreviate heavily. Decode abbreviations into clean, shopper-friendly names: e.g. 'GV SHRD MOZZ' -> 'Shredded mozzarella', 'CHKN BRST BNLS' -> 'Boneless chicken breast', 'OM TRKY SLCD' -> 'Sliced turkey', 'BRSSL SPRT' -> 'Brussels sprouts', 'HVY WHP CRM' -> 'Heavy whipping cream'. Drop brand prefixes unless the brand is the clearest name.",
+  "Decide fridge vs freezer from the item itself: ice cream, frozen vegetables/fruit, frozen pizza, frozen dumplings, popsicles -> freezer. Fresh meat and seafood -> fridge (buyers freeze later themselves). Dairy, eggs, produce, deli, tofu, kimchi, juice that needs refrigeration -> fridge.",
+  "Skip everything shelf-stable or non-food: canned goods, dry pasta/rice/noodles, chips, cereal, bread (unless labeled frozen), spices, oil, soda, bottled water, paper goods, soap, bags, coupons, tax, subtotal, total, payment and loyalty lines, store info.",
+  "Quantity: use the count or weight printed on the receipt (e.g. '2', '1.31 lb'); default '1'.",
+  "Category must be one of: Produce, Fruit, Meat, Seafood, Dairy, Deli, Frozen, Beverage, Condiment, Prepared, Other.",
+  "shelf_life_days: your best estimate of how many days this item keeps in its chosen location from purchase (e.g. fresh fish 2, ground meat 2, poultry 2, leafy greens 5, berries 4, milk 7, yogurt 14, eggs 21, hard cheese 30, frozen items 90).",
+  "confidence: 0-1, how sure you are the decoded name is right. If the line is unreadable or ambiguous, still include it with your best guess and a low confidence."
+].join("\n");
 
 async function scanReceiptWithGemini(imageDataUrl) {
   const image = parseDataUrl(imageDataUrl);
   const payload = await callGemini({
     input: [
-      {
-        type: "text",
-        text: "Extract grocery receipt line items that normally belong in a fridge or freezer. Return cold-storage grocery items only. Omit shelf-stable pantry items, snacks, canned goods, dry rice/pasta/noodles, spices, drinks that do not require refrigeration before opening, taxes, payment lines, totals, bags, coupons, and store info. Infer clean names, quantities when visible, category, and whether each belongs in fridge or freezer."
-      },
-      { type: "image", data: image.data, mime_type: image.mimeType }
+      { type: "text", text: RECEIPT_SCAN_PROMPT },
+      { type: "image", image: { mime_type: image.mimeType, data: image.data } }
     ],
     schema: receiptItemsSchema()
   });
@@ -536,9 +565,18 @@ async function scanReceiptWithGemini(imageDataUrl) {
       quantity: item.quantity || "1",
       category: item.category || "Other",
       location: item.location || "fridge",
-      confidence: item.confidence || 0.7
+      confidence: typeof item.confidence === "number" ? item.confidence : 0.7,
+      expiresAt: suggestedExpiry(item.shelf_life_days)
     })).filter((item) => ["fridge", "freezer"].includes(item.location))
   };
+}
+
+function suggestedExpiry(shelfLifeDays) {
+  const days = Number(shelfLifeDays);
+  if (!Number.isFinite(days) || days <= 0 || days > 365) return "";
+  const date = new Date();
+  date.setDate(date.getDate() + Math.round(days));
+  return date.toISOString().slice(0, 10);
 }
 
 function fallbackReceiptItems() {
@@ -602,8 +640,14 @@ async function callGemini({ input, schema }) {
 }
 
 function extractGeminiText(payload) {
-  if (payload.output_text) return payload.output_text;
+  if (payload.output_text) return stripJsonFence(payload.output_text);
   const parts = [];
+  for (const step of payload.steps || []) {
+    if (step.type && step.type !== "model_output") continue;
+    for (const content of step.content || []) {
+      if (typeof content.text === "string") parts.push(content.text);
+    }
+  }
   for (const output of payload.output || []) {
     if (typeof output.text === "string") parts.push(output.text);
     for (const content of output.content || []) {
@@ -641,13 +685,17 @@ function receiptItemsSchema() {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["name", "quantity", "category", "location", "confidence"],
+          required: ["name", "quantity", "category", "location", "confidence", "shelf_life_days"],
           properties: {
             name: { type: "string" },
             quantity: { type: "string" },
-            category: { type: "string" },
+            category: {
+              type: "string",
+              enum: ["Produce", "Fruit", "Meat", "Seafood", "Dairy", "Deli", "Frozen", "Beverage", "Condiment", "Prepared", "Other"]
+            },
             location: { type: "string", enum: ["fridge", "freezer"] },
-            confidence: { type: "number" }
+            confidence: { type: "number" },
+            shelf_life_days: { type: "integer" }
           }
         }
       }
@@ -781,7 +829,7 @@ function expiryPriority(value) {
 function serveStatic(req, res, pathname) {
   const requestPath = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.normalize(path.join(PUBLIC_DIR, requestPath));
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+  if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + path.sep)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;

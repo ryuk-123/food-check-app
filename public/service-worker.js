@@ -1,9 +1,9 @@
-const CACHE_NAME = "food-check-v8";
+const CACHE_NAME = "food-check-v9";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
-  "/styles.css?v=8",
-  "/app.js?v=8",
+  "/styles.css?v=9",
+  "/app.js?v=9",
   "/manifest.webmanifest",
   "/icon.svg"
 ];

@@ -161,16 +161,19 @@ async function saveHousehold(event) {
   event.preventDefault();
   const form = new FormData(els.householdForm);
   const nextId = normalizeHouseholdId(form.get("householdId"));
-  const nextName = String(form.get("householdName") || "").trim() || `${nextId} Fridge`;
+  const typedName = String(form.get("householdName") || "").trim();
+  const nameEdited = typedName && typedName !== state.householdName;
   state.householdId = nextId;
   localStorage.setItem("food-check-household-id", state.householdId);
 
   try {
-    const payload = await api("/api/household", {
-      method: "PATCH",
-      body: JSON.stringify({ householdName: nextName })
-    });
-    state.householdName = payload.householdName || nextName;
+    if (nameEdited) {
+      const payload = await api("/api/household", {
+        method: "PATCH",
+        body: JSON.stringify({ householdName: typedName })
+      });
+      state.householdName = payload.householdName || typedName;
+    }
     await loadInventory();
     showToast(`Using household ${state.householdId}.`);
   } catch (error) {
@@ -345,19 +348,60 @@ async function updateItem(event) {
   }
 }
 
-function handleReceiptFile(event) {
+async function handleReceiptFile(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    state.selectedImage = reader.result;
+  els.scanNotice.textContent = "Preparing photo...";
+  try {
+    state.selectedImage = await prepareReceiptImage(file);
     els.receiptPreview.src = state.selectedImage;
     els.previewFrame.classList.add("has-image");
     els.scanButton.disabled = false;
     els.scanNotice.textContent = "Ready to scan. You will review items before they are saved.";
     els.reviewPanel.classList.add("hidden");
-  };
-  reader.readAsDataURL(file);
+  } catch (error) {
+    showToast("Could not read that photo. Try another one.");
+    els.scanNotice.textContent = "No receipt selected yet.";
+  }
+}
+
+async function prepareReceiptImage(file) {
+  const original = await readFileAsDataUrl(file);
+  try {
+    const image = await loadImage(original);
+    const maxDim = 1600;
+    const scale = Math.min(1, maxDim / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+    const alreadySmallJpeg = scale >= 1 && file.type === "image/jpeg" && file.size < 1024 * 1024;
+    if (alreadySmallJpeg) return original;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+    canvas.height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const compressed = canvas.toDataURL("image/jpeg", 0.85);
+    return compressed.length < original.length ? compressed : original;
+  } catch {
+    return original;
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("File read failed."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Image decode failed."));
+    image.src = src;
+  });
 }
 
 async function scanReceipt() {
@@ -371,6 +415,11 @@ async function scanReceipt() {
       body: JSON.stringify({ imageDataUrl: state.selectedImage })
     });
     state.candidates = payload.items || [];
+    if (payload.mode === "error") {
+      els.reviewPanel.classList.add("hidden");
+      els.scanNotice.textContent = payload.notice || "Scan failed. Try again or add items manually.";
+      return;
+    }
     renderCandidates();
     els.reviewPanel.classList.remove("hidden");
     els.scanNotice.textContent = payload.notice || "Scan complete. Review each item before saving.";
@@ -391,10 +440,12 @@ function renderCandidates() {
 
   els.candidateList.innerHTML = state.candidates
     .map((item, index) => {
+      const uncertain = typeof item.confidence === "number" && item.confidence < 0.6;
       return `
         <div class="review-row" data-index="${index}">
           <input type="checkbox" checked aria-label="Include ${escapeHtml(item.name)}" />
           <div class="review-fields">
+            ${uncertain ? `<p class="helper"><span class="tag warning">double-check</span> The scan was unsure about this line.</p>` : ""}
             <label>
               Item
               <input data-field="name" value="${escapeAttribute(item.name)}" aria-label="Item name" />
