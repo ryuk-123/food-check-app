@@ -551,7 +551,7 @@ async function scanReceiptWithGemini(imageDataUrl) {
   const payload = await callGemini({
     input: [
       { type: "text", text: RECEIPT_SCAN_PROMPT },
-      { type: "image", image: { mime_type: image.mimeType, data: image.data } }
+      { type: "image", data: image.data, mime_type: image.mimeType }
     ],
     schema: receiptItemsSchema()
   });
